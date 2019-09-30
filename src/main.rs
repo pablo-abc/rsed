@@ -9,7 +9,7 @@ fn main() {
         .split('\n')
         .map(|l| l.to_string())
         .collect();
-    for line in file_lines.iter_mut() {
-        parse_line(&opt, line);
+    for (i, line) in file_lines.iter_mut().enumerate() {
+        parse_line(&opt, i, line);
     }
 }

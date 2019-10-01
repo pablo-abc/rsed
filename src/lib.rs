@@ -47,41 +47,49 @@ impl Opt {
 
 enum Operation {
     None,
-    Subs(usize),
+    Subs(Option<char>, usize, [String; 3]),
     NumRange(String, String),
     LineNum(String),
 }
 
-fn substitute(expression: &str, line: &mut String) {
-    let separator = expression.chars().collect::<Vec<_>>()[1];
-    let subs: Vec<_> = expression.split(separator).collect();
-    if subs.len() < 3 || subs[0] != "s" {
-        panic!("Invalid expression: {}", expression);
-    }
-    let re = Regex::new(subs[1]).unwrap();
-    if let Some(flags) = subs.get(3) {
+fn substitute(pattern: &str, replacement: &str, flags: &str, line: &mut String) {
+    let re = Regex::new(&pattern).unwrap();
+    if !flags.is_empty() {
         let new_line = if flags.contains('g') {
-            re.replace_all(line, subs[2])
+            re.replace_all(line, replacement)
         } else {
-            re.replace(line, subs[2])
+            re.replace(line, replacement)
         };
         if flags.contains('p') && re.is_match(line) {
             println!("{}", new_line);
         }
         *line = new_line.to_string();
     } else {
-        *line = re.replace(line, subs[2]).to_string();
+        *line = re.replace(line, replacement).to_string();
     }
 }
 
 fn parse_expression(expression: &str, line_number: usize, line: &mut String) {
     let mut op = Operation::None;
-    for (i, c) in expression.chars().enumerate() {
+    for c in expression.chars() {
         match op {
             Operation::None => (),
-            Operation::Subs(position) => {
-                substitute(&expression[position..], line);
-                break;
+            Operation::Subs(sep, section, mut substitution) => {
+                if let Some(separator) = sep {
+                    if c == separator {
+                        op = Operation::Subs(sep, section + 1, substitution);
+                        continue;
+                    } else if section <= 3 {
+                        substitution[section - 1].push(c);
+                        op = Operation::Subs(sep, section, substitution);
+                        continue;
+                    }
+                    op = Operation::Subs(sep, section, substitution);
+                    continue;
+                } else {
+                    op = Operation::Subs(Some(c), 1, substitution);
+                    continue;
+                }
             }
             Operation::LineNum(mut num) => {
                 if c.is_digit(10) {
@@ -117,11 +125,17 @@ fn parse_expression(expression: &str, line_number: usize, line: &mut String) {
         }
         match c {
             's' => {
-                op = Operation::Subs(i);
+                op = Operation::Subs(None, 0, [String::new(), String::new(), String::new()]);
             }
             num if c.is_digit(10) => op = Operation::LineNum(num.to_string()),
             _ => (),
         }
+    }
+    match op {
+        Operation::Subs(_, _, substitution) => {
+            substitute(&substitution[0], &substitution[1], &substitution[2], line)
+        }
+        _ => (),
     }
 }
 

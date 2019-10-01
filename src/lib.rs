@@ -75,7 +75,6 @@ fn substitute(pattern: &str, replacement: &str, flags: &str, line: &mut String) 
 }
 
 fn build_operation(expression: &str, line_number: usize) -> Operation {
-    let mut op = Operation::None;
     let mut bld = Build::None;
     for c in expression.chars() {
         match bld {
@@ -87,8 +86,7 @@ fn build_operation(expression: &str, line_number: usize) -> Operation {
                         continue;
                     } else if section <= 3 {
                         substitution[section - 1].push(c);
-                        bld = Build::Subs(sep, section, substitution.clone());
-                        op = Operation::Subs(substitution);
+                        bld = Build::Subs(sep, section, substitution);
                         continue;
                     }
                     panic!("Invalid substitution command");
@@ -137,7 +135,10 @@ fn build_operation(expression: &str, line_number: usize) -> Operation {
             _ => (),
         }
     }
-    op
+    match bld {
+        Build::Subs(_, _, substitution) => Operation::Subs(substitution),
+        _ => Operation::None,
+    }
 }
 
 fn parse_expression(expression: &str, line_number: usize, line: &mut String) {

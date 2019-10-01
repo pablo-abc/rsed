@@ -45,16 +45,19 @@ impl Opt {
     }
 }
 
+#[derive(PartialEq)]
 enum Build {
     None,
     Subs(Option<char>, usize, [String; 3]),
     NumRange(String, String),
     LineNum(String),
+    Skip,
 }
 
 enum Operation {
-    None,
     Subs([String; 3]),
+    Delete,
+    Print,
 }
 
 fn substitute(pattern: &str, replacement: &str, flags: &str, line: &mut String) {
@@ -66,7 +69,7 @@ fn substitute(pattern: &str, replacement: &str, flags: &str, line: &mut String) 
             re.replace(line, replacement)
         };
         if flags.contains('p') && re.is_match(line) {
-            println!("{}", new_line);
+            print!("{}", new_line);
         }
         *line = new_line.to_string();
     } else {
@@ -74,8 +77,9 @@ fn substitute(pattern: &str, replacement: &str, flags: &str, line: &mut String) 
     }
 }
 
-fn build_operation(expression: &str, line_number: usize) -> Operation {
+fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
     let mut bld = Build::None;
+    let mut bldv: Vec<Operation> = Vec::new();
     for c in expression.chars() {
         match bld {
             Build::None => (),
@@ -84,9 +88,13 @@ fn build_operation(expression: &str, line_number: usize) -> Operation {
                     if c == separator {
                         bld = Build::Subs(sep, section + 1, substitution);
                         continue;
-                    } else if section <= 3 {
+                    } else if section <= 3 && c != ';' {
                         substitution[section - 1].push(c);
                         bld = Build::Subs(sep, section, substitution);
+                        continue;
+                    } else if c == ';' {
+                        bldv.push(Operation::Subs(substitution));
+                        bld = Build::None;
                         continue;
                     }
                     panic!("Invalid substitution command");
@@ -110,7 +118,8 @@ fn build_operation(expression: &str, line_number: usize) -> Operation {
                 bld = Build::None;
                 let num: usize = num.parse().unwrap();
                 if num == 0 || line_number != num - 1 {
-                    break;
+                    bld = Build::Skip;
+                    continue;
                 }
             }
             Build::NumRange(from, mut to) => {
@@ -123,30 +132,52 @@ fn build_operation(expression: &str, line_number: usize) -> Operation {
                 let from: usize = from.parse().unwrap();
                 let to: usize = to.parse().unwrap();
                 if from == 0 || to == 0 || line_number < from - 1 || line_number > to - 1 {
-                    break;
+                    bld = Build::Skip;
+                    continue;
                 }
+            }
+            Build::Skip => {
+                if c == ';' {
+                    bld = Build::None;
+                }
+                continue;
             }
         }
         match c {
             's' => {
                 bld = Build::Subs(None, 0, [String::new(), String::new(), String::new()]);
             }
+            'd' => bldv.push(Operation::Delete),
+            'p' => bldv.push(Operation::Print),
+            ';' => match bld {
+                Build::Subs(_, _, substitution) => {
+                    bld = Build::None;
+                    bldv.push(Operation::Subs(substitution));
+                }
+                _ => bld = Build::None,
+            },
             num if c.is_digit(10) => bld = Build::LineNum(num.to_string()),
             _ => (),
         }
     }
     match bld {
-        Build::Subs(_, _, substitution) => Operation::Subs(substitution),
-        _ => Operation::None,
+        Build::Subs(_, _, substitution) => {
+            bldv.insert(0, Operation::Subs(substitution));
+            bldv
+        }
+        _ => bldv,
     }
 }
 
 fn parse_expression(expression: &str, line_number: usize, line: &mut String) {
-    match build_operation(expression, line_number) {
-        Operation::Subs(substitution) => {
-            substitute(&substitution[0], &substitution[1], &substitution[2], line)
+    for op in build_operation(expression, line_number) {
+        match op {
+            Operation::Subs(substitution) => {
+                substitute(&substitution[0], &substitution[1], &substitution[2], line)
+            }
+            Operation::Delete => line.clear(),
+            Operation::Print => print!("{}", line),
         }
-        _ => (),
     }
 }
 
@@ -155,6 +186,6 @@ pub fn parse_line(opt: &Opt, line_number: usize, line: &mut String) {
         parse_expression(expression, line_number, line);
     }
     if !opt.quiet {
-        println!("{}", line);
+        print!("{}", line);
     }
 }

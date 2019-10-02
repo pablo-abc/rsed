@@ -7,11 +7,15 @@ use structopt::StructOpt;
 pub struct Opt {
     /// Quiet mode
     #[structopt(short = "n", long)]
-    pub quiet: bool,
+    quiet: bool,
 
     /// Expression command
     #[structopt(short, long, number_of_values = 1)]
     expression: Vec<String>,
+
+    /// Modify a file in place
+    #[structopt(short, long)]
+    pub in_place: Option<String>,
 
     /// Substitution command
     #[structopt(name = "COMMAND")]
@@ -23,7 +27,7 @@ pub struct Opt {
 }
 
 impl Opt {
-    pub fn get_expressions(&self) -> String {
+    fn get_expressions(&self) -> String {
         if self.expression.is_empty() {
             if self.file_name.is_some() {
                 self.expression_or_file.clone()
@@ -59,20 +63,21 @@ enum Operation {
     Print,
 }
 
-fn substitute(pattern: &str, replacement: &str, flags: &str, line: &mut String) {
+fn substitute(pattern: &str, replacement: &str, flags: &str, line: &str) -> Vec<String> {
     let re = Regex::new(&pattern).unwrap();
     if !flags.is_empty() {
         let new_line = if flags.contains('g') {
-            re.replace_all(line, replacement)
+            re.replace_all(line, replacement).to_string()
         } else {
-            re.replace(line, replacement)
+            re.replace(line, replacement).to_string()
         };
         if flags.contains('p') && re.is_match(line) {
-            print!("{}", new_line);
+            vec![new_line.clone(), new_line]
+        } else {
+            vec![new_line]
         }
-        *line = new_line.to_string();
     } else {
-        *line = re.replace(line, replacement).to_string();
+        vec![re.replace(line, replacement).to_string()]
     }
 }
 
@@ -168,21 +173,29 @@ fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
     }
 }
 
-fn parse_expression(expression: &str, line_number: usize, line: &mut String) {
-    for op in build_operation(expression, line_number) {
+pub fn parse_line(opt: &Opt, line_number: usize, line: &mut String) -> Vec<String> {
+    let mut line: String = line.to_string();
+    let mut printed: Vec<String> = Vec::new();
+    let mut result = Vec::new();
+    for op in build_operation(&opt.get_expressions(), line_number) {
         match op {
             Operation::Subs(substitution) => {
-                substitute(&substitution[0], &substitution[1], &substitution[2], line)
+                if !line.is_empty() {
+                    let mut new_line =
+                        substitute(&substitution[0], &substitution[1], &substitution[2], &line);
+                    line = new_line[0].clone();
+                    printed = printed.iter().map(|_| line.clone()).collect();
+                    new_line.pop();
+                    printed.append(&mut new_line);
+                }
             }
             Operation::Delete => line.clear(),
-            Operation::Print => print!("{}", line),
+            Operation::Print => printed.push(line.clone()),
         }
     }
-}
-
-pub fn parse_line(opt: &Opt, line_number: usize, line: &mut String) {
-    parse_expression(&opt.get_expressions(), line_number, line);
     if !opt.quiet {
-        print!("{}", line);
+        result.push(line);
     }
+    result.append(&mut printed);
+    result
 }

@@ -23,16 +23,15 @@ pub struct Opt {
 }
 
 impl Opt {
-    pub fn get_expressions(&self) -> Vec<String> {
+    pub fn get_expressions(&self) -> String {
         if self.expression.is_empty() {
             if self.file_name.is_some() {
-                let expression = &self.expression_or_file;
-                vec![expression.clone()]
+                self.expression_or_file.clone()
             } else {
                 panic!("<expression> required");
             }
         } else {
-            self.expression.clone()
+            self.expression.join(";")
         }
     }
 
@@ -182,9 +181,7 @@ fn parse_expression(expression: &str, line_number: usize, line: &mut String) {
 }
 
 pub fn parse_line(opt: &Opt, line_number: usize, line: &mut String) {
-    for expression in &opt.get_expressions() {
-        parse_expression(expression, line_number, line);
-    }
+    parse_expression(&opt.get_expressions(), line_number, line);
     if !opt.quiet {
         print!("{}", line);
     }

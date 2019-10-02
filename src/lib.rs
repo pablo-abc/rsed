@@ -48,7 +48,6 @@ impl Opt {
     }
 }
 
-#[derive(PartialEq)]
 enum Build {
     None,
     Subs(Option<char>, usize, [String; 3]),

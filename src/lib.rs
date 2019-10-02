@@ -121,7 +121,11 @@ fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
                 }
                 bld = Build::None;
                 let num: usize = num.parse().unwrap();
-                if num == 0 || line_number != num - 1 {
+                let mut valid = num == 0 || line_number != num - 1;
+                if c == '!' {
+                    valid = !valid;
+                }
+                if valid {
                     bld = Build::Skip;
                     continue;
                 }
@@ -131,11 +135,19 @@ fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
                     to.push(c);
                     bld = Build::NumRange(from, to);
                     continue;
+                } else if c == ' ' {
+                    bld = Build::NumRange(from, to);
+                    continue;
                 }
                 bld = Build::None;
                 let from: usize = from.parse().unwrap();
                 let to: usize = to.parse().unwrap();
-                if from == 0 || to == 0 || line_number < from - 1 || line_number > to - 1 {
+                let mut valid =
+                    from == 0 || to == 0 || line_number < from - 1 || line_number > to - 1;
+                if c == '!' {
+                    valid = !valid;
+                }
+                if valid {
                     bld = Build::Skip;
                     continue;
                 }

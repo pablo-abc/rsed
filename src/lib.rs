@@ -56,9 +56,9 @@ enum Build {
         pos: usize,
         sub: [String; 3],
     },
-    NumRange(String, String),
-    LineNum(String),
+    Num(String),
     Write(String),
+    Regex(String, bool),
 }
 
 #[derive(Clone)]
@@ -76,8 +76,8 @@ pub enum Operation {
 
 #[derive(Clone)]
 enum Matcher {
-    Range(String, String),
-    Single(String),
+    Range(usize, usize),
+    Single(usize),
     None,
 }
 
@@ -89,7 +89,7 @@ fn append_or_create(file_name: PathBuf, new_line: &str) -> Result<(), Box<dyn Er
 }
 
 fn substitute(pattern: &str, replacement: &str, flags: &str, line: &str) -> Vec<String> {
-    let re = Regex::new(&pattern).unwrap();
+    let re = Regex::new(&pattern).expect("Invalid regular expression");
     if !flags.is_empty() {
         let new_line = if flags.contains('g') {
             re.replace_all(line, replacement).to_string()
@@ -114,7 +114,18 @@ fn substitute(pattern: &str, replacement: &str, flags: &str, line: &str) -> Vec<
     }
 }
 
-pub fn build_ast(expression: &str) -> Vec<(Options, Operation)> {
+fn get_regex_position(re: Regex, lines: &[String]) -> usize {
+    let mut pos: usize = 0;
+    for (i, line) in lines.iter().enumerate() {
+        if re.is_match(line) {
+            pos = i + 1;
+            break;
+        }
+    }
+    pos
+}
+
+pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)> {
     let mut options = Options {
         matcher: Matcher::None,
         neg: false,
@@ -170,33 +181,56 @@ pub fn build_ast(expression: &str) -> Vec<(Options, Operation)> {
                 file_name.push(c);
                 continue;
             }
-            Build::LineNum(ref mut num) => {
+            Build::Num(ref mut num) => {
                 if c.is_digit(10) {
                     num.push(c);
                     continue;
-                } else if c == ',' {
-                    bld = Build::NumRange(num.to_string(), String::new());
-                    continue;
                 } else if c == ' ' {
                     continue;
                 }
-                options = Options {
-                    matcher: Matcher::Single(num.to_string()),
-                    neg: c == '!',
-                };
+                if let Matcher::Single(from) = options.matcher {
+                    options = Options {
+                        matcher: Matcher::Range(from, num.parse().unwrap()),
+                        neg: c == '!',
+                    };
+                } else {
+                    options = Options {
+                        matcher: Matcher::Single(num.parse().unwrap()),
+                        neg: c == '!',
+                    };
+                }
                 bld = Build::None;
             }
-            Build::NumRange(ref from, ref mut to) => {
-                if c.is_digit(10) {
-                    to.push(c);
+            Build::Regex(ref mut search, ref mut finished) => {
+                if c != '/' && !*finished {
+                    search.push(c);
+                    continue;
+                } else if c == '/' {
+                    *finished = true;
                     continue;
                 } else if c == ' ' {
                     continue;
                 }
-                options = Options {
-                    matcher: Matcher::Range(from.to_string(), to.to_string()),
-                    neg: c == '!',
-                };
+                if let Matcher::Single(from) = options.matcher {
+                    options = Options {
+                        matcher: Matcher::Range(
+                            from,
+                            get_regex_position(
+                                Regex::new(search).expect("Invalid regular expression"),
+                                lines,
+                            ),
+                        ),
+                        neg: c == '!',
+                    }
+                } else {
+                    options = Options {
+                        matcher: Matcher::Single(get_regex_position(
+                            Regex::new(search).expect("Invalid regular expression"),
+                            lines,
+                        )),
+                        neg: c == '!',
+                    };
+                }
                 bld = Build::None;
             }
         }
@@ -224,6 +258,7 @@ pub fn build_ast(expression: &str) -> Vec<(Options, Operation)> {
             }
             'n' => break,
             'w' => bld = Build::Write(String::new()),
+            '/' => bld = Build::Regex(String::new(), false),
             ';' => match bld {
                 Build::Subs { sub, .. } => {
                     bld = Build::None;
@@ -235,7 +270,7 @@ pub fn build_ast(expression: &str) -> Vec<(Options, Operation)> {
                 }
                 _ => bld = Build::None,
             },
-            num if c.is_digit(10) => bld = Build::LineNum(num.to_string()),
+            num if c.is_digit(10) => bld = Build::Num(num.to_string()),
             _ => (),
         }
     }
@@ -258,13 +293,11 @@ pub fn build_ast(expression: &str) -> Vec<(Options, Operation)> {
 fn is_valid(options: &Options, line_number: usize) -> bool {
     let valid = match options.matcher {
         Matcher::None => true,
-        Matcher::Range(ref from, ref to) => {
-            let from: usize = from.parse().unwrap();
-            let to: usize = to.parse().unwrap();
+        Matcher::Range(from, to) => {
             from == 0 || to == 0 || line_number >= from - 1 && line_number < to
         }
-        Matcher::Single(ref n) => {
-            let n: usize = n.parse().unwrap();
+        Matcher::Single(n) => {
+            let n: usize = n;
             n == 0 || line_number == n - 1
         }
     };
@@ -275,47 +308,45 @@ fn is_valid(options: &Options, line_number: usize) -> bool {
     }
 }
 
-pub fn execute(
-    opt: &Opt,
-    expressions: &[(Options, Operation)],
-    line_number: usize,
-    line: &mut String,
-) -> Vec<String> {
-    let mut line: String = line.to_string();
-    let mut printed: Vec<String> = Vec::new();
+pub fn execute(opt: &Opt, expressions: &[(Options, Operation)], lines: &[String]) -> Vec<String> {
     let mut result = Vec::new();
-    for op in expressions {
-        match op {
-            (options, Operation::Subs(substitution)) => {
-                if !line.is_empty() && is_valid(options, line_number) {
-                    let mut new_line =
-                        substitute(&substitution[0], &substitution[1], &substitution[2], &line);
-                    line = new_line[0].clone();
-                    printed = printed.iter().map(|_| line.clone()).collect();
-                    new_line.pop();
-                    printed.append(&mut new_line);
+    let mut lines = lines.to_owned();
+    for (line_number, line) in lines.iter_mut().enumerate() {
+        let mut printed: Vec<String> = Vec::new();
+        for op in expressions {
+            match op {
+                (options, Operation::Subs(substitution)) => {
+                    if !line.is_empty() && is_valid(options, line_number) {
+                        let mut new_line =
+                            substitute(&substitution[0], &substitution[1], &substitution[2], &line);
+                        *line = new_line[0].clone();
+                        printed = printed.iter().map(|_| line.clone()).collect();
+                        new_line.pop();
+                        printed.append(&mut new_line);
+                    }
                 }
-            }
-            (options, Operation::Write(file_name)) => {
-                if is_valid(options, line_number) {
-                    append_or_create(file_name.to_path_buf(), &line).expect("Failed to write file");
-                };
-            }
-            (options, Operation::Delete) => {
-                if is_valid(options, line_number) {
-                    line.clear()
+                (options, Operation::Write(file_name)) => {
+                    if is_valid(options, line_number) {
+                        append_or_create(file_name.to_path_buf(), &line)
+                            .expect("Failed to write file");
+                    };
                 }
-            }
-            (options, Operation::Print) => {
-                if is_valid(options, line_number) {
-                    printed.push(line.clone())
+                (options, Operation::Delete) => {
+                    if is_valid(options, line_number) {
+                        line.clear()
+                    }
+                }
+                (options, Operation::Print) => {
+                    if is_valid(options, line_number) {
+                        printed.push(line.clone())
+                    }
                 }
             }
         }
+        if !opt.quiet {
+            result.push(line.to_string());
+        }
+        result.append(&mut printed);
     }
-    if !opt.quiet {
-        result.push(line);
-    }
-    result.append(&mut printed);
     result
 }

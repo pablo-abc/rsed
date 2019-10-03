@@ -75,7 +75,7 @@ pub enum Operation {
 }
 
 #[derive(Clone)]
-pub enum Matcher {
+enum Matcher {
     Range(String, String),
     Single(String),
     None,

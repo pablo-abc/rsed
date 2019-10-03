@@ -58,7 +58,7 @@ enum Build {
     Skip,
 }
 
-enum Operation {
+pub enum Operation {
     Subs([String; 3]),
     Write(PathBuf),
     Delete,
@@ -98,60 +98,56 @@ fn substitute(pattern: &str, replacement: &str, flags: &str, line: &str) -> Vec<
     }
 }
 
-fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
+pub fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
     let mut bld = Build::None;
     let mut bldv: Vec<Operation> = Vec::new();
     for c in expression.chars() {
         match bld {
             Build::None => (),
-            Build::Subs(sep, section, mut substitution) => {
-                if let Some(separator) = sep {
+            Build::Subs(ref mut sep, ref mut section, ref mut substitution) => {
+                if let Some(separator) = *sep {
                     if c == separator {
-                        bld = Build::Subs(sep, section + 1, substitution);
+                        *section += 1;
                         continue;
-                    } else if section <= 3 && c != ';' {
-                        substitution[section - 1].push(c);
-                        bld = Build::Subs(sep, section, substitution);
+                    } else if *section <= 3 && c != ';' {
+                        substitution[*section - 1].push(c);
                         continue;
                     } else if c == ';' {
-                        bldv.push(Operation::Subs(substitution));
+                        bldv.push(Operation::Subs(substitution.to_owned()));
                         bld = Build::None;
                         continue;
                     }
                     panic!("Invalid substitution command");
                 } else {
-                    bld = Build::Subs(Some(c), 1, substitution);
+                    *section = 1;
+                    *sep = Some(c);
                     continue;
                 }
             }
-            Build::Write(mut file_name) => {
+            Build::Write(ref mut file_name) => {
                 if c == ' ' {
-                    bld = Build::Write(file_name);
                     continue;
                 } else if c == ';' {
-                    bldv.push(Operation::Write(PathBuf::from(file_name)));
+                    bldv.push(Operation::Write(PathBuf::from(file_name.to_owned())));
                     bld = Build::None;
                     continue;
                 }
                 file_name.push(c);
-                bld = Build::Write(file_name);
                 continue;
             }
-            Build::LineNum(mut num) => {
+            Build::LineNum(ref mut num) => {
                 if c.is_digit(10) {
                     num.push(c);
-                    bld = Build::LineNum(num);
                     continue;
                 } else if c == ',' {
-                    bld = Build::NumRange(num, String::new());
+                    bld = Build::NumRange(num.to_string(), String::new());
                     continue;
                 } else if c == ' ' {
-                    bld = Build::LineNum(num);
                     continue;
                 }
-                bld = Build::None;
                 let num: usize = num.parse().unwrap();
                 let mut valid = num == 0 || line_number != num - 1;
+                bld = Build::None;
                 if c == '!' {
                     valid = !valid;
                 }
@@ -160,16 +156,13 @@ fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
                     continue;
                 }
             }
-            Build::NumRange(from, mut to) => {
+            Build::NumRange(ref from, ref mut to) => {
                 if c.is_digit(10) {
                     to.push(c);
-                    bld = Build::NumRange(from, to);
                     continue;
                 } else if c == ' ' {
-                    bld = Build::NumRange(from, to);
                     continue;
                 }
-                bld = Build::None;
                 let from: usize = from.parse().unwrap();
                 let to: usize = to.parse().unwrap();
                 let mut valid =
@@ -181,6 +174,7 @@ fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
                     bld = Build::Skip;
                     continue;
                 }
+                bld = Build::None;
             }
             Build::Skip => {
                 if c == ';' {

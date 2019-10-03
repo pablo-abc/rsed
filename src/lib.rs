@@ -271,7 +271,7 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
                 _ => bld = Build::None,
             },
             num if c.is_digit(10) => bld = Build::Num(num.to_string()),
-            _ => (),
+            command => panic!("Invalid command: {}", command),
         }
     }
     match bld {

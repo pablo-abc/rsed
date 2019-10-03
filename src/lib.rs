@@ -1,4 +1,5 @@
 use regex::Regex;
+use std::error::Error;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -53,13 +54,22 @@ enum Build {
     Subs(Option<char>, usize, [String; 3]),
     NumRange(String, String),
     LineNum(String),
+    Write(String),
     Skip,
 }
 
 enum Operation {
     Subs([String; 3]),
+    Write(PathBuf),
     Delete,
     Print,
+}
+
+fn append_or_create(file_name: PathBuf, new_line: &str) -> Result<(), Box<dyn Error>> {
+    let mut file_content = std::fs::read_to_string(&file_name).unwrap_or_default();
+    file_content.push_str(new_line);
+    std::fs::write(file_name, file_content)?;
+    Ok(())
 }
 
 fn substitute(pattern: &str, replacement: &str, flags: &str, line: &str) -> Vec<String> {
@@ -70,6 +80,14 @@ fn substitute(pattern: &str, replacement: &str, flags: &str, line: &str) -> Vec<
         } else {
             re.replace(line, replacement).to_string()
         };
+        if flags.contains('w') && re.is_match(line) {
+            if let Some(file_name) = flags.split(' ').collect::<Vec<&str>>().pop() {
+                append_or_create(PathBuf::from(&file_name), &new_line)
+                    .expect("Failed to write file");
+            } else {
+                panic!("File name is required for w");
+            }
+        }
         if flags.contains('p') && re.is_match(line) {
             vec![new_line.clone(), new_line]
         } else {
@@ -105,6 +123,19 @@ fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
                     bld = Build::Subs(Some(c), 1, substitution);
                     continue;
                 }
+            }
+            Build::Write(mut file_name) => {
+                if c == ' ' {
+                    bld = Build::Write(file_name);
+                    continue;
+                } else if c == ';' {
+                    bldv.push(Operation::Write(PathBuf::from(file_name)));
+                    bld = Build::None;
+                    continue;
+                }
+                file_name.push(c);
+                bld = Build::Write(file_name);
+                continue;
             }
             Build::LineNum(mut num) => {
                 if c.is_digit(10) {
@@ -164,6 +195,8 @@ fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
             }
             'd' => bldv.push(Operation::Delete),
             'p' => bldv.push(Operation::Print),
+            'n' => break,
+            'w' => bld = Build::Write(String::new()),
             ';' => match bld {
                 Build::Subs(_, _, substitution) => {
                     bld = Build::None;
@@ -178,6 +211,10 @@ fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
     match bld {
         Build::Subs(_, _, substitution) => {
             bldv.insert(0, Operation::Subs(substitution));
+            bldv
+        }
+        Build::Write(file_name) => {
+            bldv.insert(0, Operation::Write(PathBuf::from(file_name)));
             bldv
         }
         _ => bldv,
@@ -199,6 +236,9 @@ pub fn parse_line(opt: &Opt, line_number: usize, line: &mut String) -> Vec<Strin
                     new_line.pop();
                     printed.append(&mut new_line);
                 }
+            }
+            Operation::Write(file_name) => {
+                append_or_create(file_name, &line).expect("Failed to write file");
             }
             Operation::Delete => line.clear(),
             Operation::Print => printed.push(line.clone()),

@@ -51,7 +51,11 @@ impl Opt {
 
 enum Build {
     None,
-    Subs(Option<char>, usize, [String; 3]),
+    Subs {
+        sep: Option<char>,
+        pos: usize,
+        sub: [String; 3],
+    },
     NumRange(String, String),
     LineNum(String),
     Write(String),
@@ -104,22 +108,26 @@ pub fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
     for c in expression.chars() {
         match bld {
             Build::None => (),
-            Build::Subs(ref mut sep, ref mut section, ref mut substitution) => {
+            Build::Subs {
+                ref mut sep,
+                ref mut pos,
+                ref mut sub,
+            } => {
                 if let Some(separator) = *sep {
                     if c == separator {
-                        *section += 1;
+                        *pos += 1;
                         continue;
-                    } else if *section <= 3 && c != ';' {
-                        substitution[*section - 1].push(c);
+                    } else if *pos <= 3 && c != ';' {
+                        sub[*pos - 1].push(c);
                         continue;
                     } else if c == ';' {
-                        bldv.push(Operation::Subs(substitution.to_owned()));
+                        bldv.push(Operation::Subs(sub.to_owned()));
                         bld = Build::None;
                         continue;
                     }
                     panic!("Invalid substitution command");
                 } else {
-                    *section = 1;
+                    *pos = 1;
                     *sep = Some(c);
                     continue;
                 }
@@ -128,7 +136,7 @@ pub fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
                 if c == ' ' {
                     continue;
                 } else if c == ';' {
-                    bldv.push(Operation::Write(PathBuf::from(file_name.to_owned())));
+                    bldv.push(Operation::Write(PathBuf::from(file_name.to_string())));
                     bld = Build::None;
                     continue;
                 }
@@ -185,16 +193,20 @@ pub fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
         }
         match c {
             's' => {
-                bld = Build::Subs(None, 0, [String::new(), String::new(), String::new()]);
+                bld = Build::Subs {
+                    sep: None,
+                    pos: 0,
+                    sub: [String::new(), String::new(), String::new()],
+                };
             }
             'd' => bldv.push(Operation::Delete),
             'p' => bldv.push(Operation::Print),
             'n' => break,
             'w' => bld = Build::Write(String::new()),
             ';' => match bld {
-                Build::Subs(_, _, substitution) => {
+                Build::Subs { sub, .. } => {
                     bld = Build::None;
-                    bldv.push(Operation::Subs(substitution));
+                    bldv.push(Operation::Subs(sub));
                 }
                 _ => bld = Build::None,
             },
@@ -203,8 +215,8 @@ pub fn build_operation(expression: &str, line_number: usize) -> Vec<Operation> {
         }
     }
     match bld {
-        Build::Subs(_, _, substitution) => {
-            bldv.insert(0, Operation::Subs(substitution));
+        Build::Subs { sub, .. } => {
+            bldv.insert(0, Operation::Subs(sub));
             bldv
         }
         Build::Write(file_name) => {

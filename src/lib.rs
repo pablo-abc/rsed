@@ -132,9 +132,58 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
     };
     let mut bld = Build::None;
     let mut bldv: Vec<(Options, Operation)> = Vec::new();
-    for c in expression.chars() {
+    let mut characters = expression.chars();
+    let mut current: Option<char> = characters.next();
+    loop {
+        if current.is_none() {
+            break;
+        }
+        let c = current.unwrap();
         match bld {
-            Build::None => (),
+            Build::None => {
+                match c {
+                    's' => {
+                        bld = Build::Subs {
+                            sep: None,
+                            pos: 0,
+                            sub: [String::new(), String::new(), String::new()],
+                        };
+                    }
+                    'd' => {
+                        bldv.push((options.clone(), Operation::Delete));
+                        options = Options {
+                            matcher: Matcher::None,
+                            neg: false,
+                        };
+                    }
+                    'p' => {
+                        bldv.push((options.clone(), Operation::Print));
+                        options = Options {
+                            matcher: Matcher::None,
+                            neg: false,
+                        };
+                    }
+                    'n' => break,
+                    'w' => bld = Build::Write(String::new()),
+                    '/' => bld = Build::Regex(String::new(), false),
+                    ';' => match bld {
+                        Build::Subs { sub, .. } => {
+                            bld = Build::None;
+                            bldv.push((options.clone(), Operation::Subs(sub)));
+                            options = Options {
+                                matcher: Matcher::None,
+                                neg: false,
+                            };
+                        }
+                        _ => bld = Build::None,
+                    },
+                    '!' => options.neg = true,
+                    ',' => (),
+                    num if c.is_digit(10) => bld = Build::Num(num.to_string()),
+                    command => panic!("Invalid command: {}", command),
+                }
+                current = characters.next();
+            }
             Build::Subs {
                 ref mut sep,
                 ref mut pos,
@@ -143,10 +192,8 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
                 if let Some(separator) = *sep {
                     if c == separator {
                         *pos += 1;
-                        continue;
                     } else if *pos <= 3 && c != ';' {
                         sub[*pos - 1].push(c);
-                        continue;
                     } else if c == ';' {
                         bldv.push((options.clone(), Operation::Subs(sub.to_owned())));
                         bld = Build::None;
@@ -155,18 +202,17 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
                             neg: false,
                         };
                         continue;
+                    } else {
+                        panic!("Invalid substitution command");
                     }
-                    panic!("Invalid substitution command");
                 } else {
                     *pos = 1;
                     *sep = Some(c);
-                    continue;
                 }
+                current = characters.next();
             }
             Build::Write(ref mut file_name) => {
-                if c == ' ' {
-                    continue;
-                } else if c == ';' {
+                if c == ';' {
                     bldv.push((
                         options.clone(),
                         Operation::Write(PathBuf::from(file_name.to_string())),
@@ -176,114 +222,70 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
                         matcher: Matcher::None,
                         neg: false,
                     };
-                    continue;
+                } else {
+                    file_name.push(c);
                 }
-                file_name.push(c);
-                continue;
+                current = characters.next();
             }
             Build::Num(ref mut num) => {
                 if c.is_digit(10) {
                     num.push(c);
-                    continue;
-                } else if c == ' ' {
-                    continue;
-                }
-                if let Matcher::Single(from) = options.matcher {
-                    options = Options {
-                        matcher: Matcher::Range(from, num.parse().unwrap()),
-                        neg: c == '!',
-                    };
+                    current = characters.next();
                 } else {
-                    options = Options {
-                        matcher: Matcher::Single(num.parse().unwrap()),
-                        neg: c == '!',
-                    };
+                    if let Matcher::Single(from) = options.matcher {
+                        options = Options {
+                            matcher: Matcher::Range(from, num.parse().unwrap()),
+                            neg: c == '!',
+                        };
+                    } else {
+                        options = Options {
+                            matcher: Matcher::Single(num.parse().unwrap()),
+                            neg: c == '!',
+                        };
+                    }
+                    bld = Build::None;
                 }
-                bld = Build::None;
             }
             Build::Regex(ref mut search, ref mut finished) => {
                 if c != '/' && !*finished {
                     search.push(c);
-                    continue;
                 } else if c == '/' {
                     *finished = true;
-                    continue;
-                } else if c == ' ' {
-                    continue;
-                }
-                if let Matcher::Single(from) = options.matcher {
-                    options = Options {
-                        matcher: Matcher::Range(
-                            from,
-                            get_regex_position(
+                } else {
+                    if let Matcher::Single(from) = options.matcher {
+                        options = Options {
+                            matcher: Matcher::Range(
+                                from,
+                                get_regex_position(
+                                    Regex::new(search).expect("Invalid regular expression"),
+                                    lines,
+                                ),
+                            ),
+                            neg: c == '!',
+                        }
+                    } else {
+                        options = Options {
+                            matcher: Matcher::Single(get_regex_position(
                                 Regex::new(search).expect("Invalid regular expression"),
                                 lines,
-                            ),
-                        ),
-                        neg: c == '!',
+                            )),
+                            neg: c == '!',
+                        };
                     }
-                } else {
-                    options = Options {
-                        matcher: Matcher::Single(get_regex_position(
-                            Regex::new(search).expect("Invalid regular expression"),
-                            lines,
-                        )),
-                        neg: c == '!',
-                    };
-                }
-                bld = Build::None;
-            }
-        }
-        match c {
-            's' => {
-                bld = Build::Subs {
-                    sep: None,
-                    pos: 0,
-                    sub: [String::new(), String::new(), String::new()],
-                };
-            }
-            'd' => {
-                bldv.push((options.clone(), Operation::Delete));
-                options = Options {
-                    matcher: Matcher::None,
-                    neg: false,
-                };
-            }
-            'p' => {
-                bldv.push((options.clone(), Operation::Print));
-                options = Options {
-                    matcher: Matcher::None,
-                    neg: false,
-                };
-            }
-            'n' => break,
-            'w' => bld = Build::Write(String::new()),
-            '/' => bld = Build::Regex(String::new(), false),
-            ';' => match bld {
-                Build::Subs { sub, .. } => {
                     bld = Build::None;
-                    bldv.push((options.clone(), Operation::Subs(sub)));
-                    options = Options {
-                        matcher: Matcher::None,
-                        neg: false,
-                    };
+                    continue;
                 }
-                _ => bld = Build::None,
-            },
-            num if c.is_digit(10) => bld = Build::Num(num.to_string()),
-            command => panic!("Invalid command: {}", command),
+                current = characters.next();
+            }
         }
     }
     match bld {
         Build::Subs { sub, .. } => {
-            bldv.insert(0, (options.clone(), Operation::Subs(sub)));
+            bldv.push((options.clone(), Operation::Subs(sub)));
             bldv
         }
         Build::Write(file_name) => {
-            bldv.insert(
-                0,
-                (options.clone(), Operation::Write(PathBuf::from(file_name))),
-            );
+            bldv.push((options.clone(), Operation::Write(PathBuf::from(file_name))));
             bldv
         }
         _ => bldv,

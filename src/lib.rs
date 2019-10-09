@@ -66,6 +66,7 @@ pub enum Operation {
     Write(PathBuf),
     Delete,
     Print,
+    Skip,
 }
 
 #[derive(Debug, Clone)]
@@ -278,21 +279,9 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
         let c = characters[index];
         match c {
             's' => bldv.push(build_subs(&mut index, &characters, options.clone())),
-            'd' => {
-                bldv.push((options.clone(), Operation::Delete));
-                options = Options {
-                    matcher: Matcher::None,
-                    neg: false,
-                };
-            }
-            'p' => {
-                bldv.push((options.clone(), Operation::Print));
-                options = Options {
-                    matcher: Matcher::None,
-                    neg: false,
-                };
-            }
-            'n' => break,
+            'd' => bldv.push((options.clone(), Operation::Delete)),
+            'p' => bldv.push((options.clone(), Operation::Print)),
+            'n' => bldv.push((options.clone(), Operation::Skip)),
             'w' => bldv.push(build_write(&mut index, &characters, options.clone())),
             '!' => options.neg = true,
             ';' => {
@@ -334,7 +323,9 @@ fn is_valid(options: &Options, line_number: usize) -> bool {
 pub fn execute(opt: &Opt, expressions: &[(Options, Operation)], lines: &[String]) -> Vec<String> {
     let mut result = Vec::new();
     let mut lines = lines.to_owned();
-    for (line_number, line) in lines.iter_mut().enumerate() {
+    let mut line_number: usize = 0;
+    while line_number < lines.len() {
+        let mut line = &mut lines[line_number];
         let mut printed: Vec<String> = Vec::new();
         for op in expressions {
             match op {
@@ -343,7 +334,6 @@ pub fn execute(opt: &Opt, expressions: &[(Options, Operation)], lines: &[String]
                         let mut new_line =
                             substitute(&substitution[0], &substitution[1], &substitution[2], &line);
                         *line = new_line[0].clone();
-                        printed = printed.iter().map(|_| line.clone()).collect();
                         new_line.pop();
                         printed.append(&mut new_line);
                     }
@@ -364,12 +354,19 @@ pub fn execute(opt: &Opt, expressions: &[(Options, Operation)], lines: &[String]
                         printed.push(line.clone())
                     }
                 }
+                (options, Operation::Skip) => {
+                    if is_valid(options, line_number) {
+                        line_number += 1;
+                        line = &mut lines[line_number];
+                    }
+                }
             }
         }
+        result.append(&mut printed);
         if !opt.quiet {
             result.push(line.to_string());
         }
-        result.append(&mut printed);
+        line_number += 1;
     }
     result
 }

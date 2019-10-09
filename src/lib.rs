@@ -159,10 +159,7 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
     let mut bldv: Vec<(Options, Operation)> = Vec::new();
     let mut characters = expression.chars();
     let mut current: Option<char> = characters.next();
-    loop {
-        if current.is_none() {
-            break;
-        }
+    while current.is_some() {
         let c = current.unwrap();
         match bld {
             Build::None => {

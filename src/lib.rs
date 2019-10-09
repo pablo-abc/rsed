@@ -88,15 +88,40 @@ fn append_or_create(file_name: PathBuf, new_line: &str) -> Result<(), Box<dyn Er
     Ok(())
 }
 
+fn line_to_edit(re: &Regex, flags: &str, line: &str) -> [String; 2] {
+    let nre = Regex::new(r"\d+").unwrap();
+    if let Some(from) = nre.captures(flags) {
+        if &from[0] == "0" {
+            panic!("Number option to 's' command may not be 0");
+        }
+        let from = from[0].parse::<usize>().unwrap() - 1;
+        let occurrences: Vec<_> = re.find_iter(line).collect();
+        if let Some(matched) = occurrences.get(from) {
+            let split_pos = matched.start();
+            [line[..split_pos].to_string(), line[split_pos..].to_string()]
+        } else {
+            [line.to_string(), String::new()]
+        }
+    } else {
+        [String::new(), String::from(line)]
+    }
+}
+
+fn edit_line(re: &Regex, replacement: &str, flags: &str, line: &str) -> String {
+    if flags.contains('g') {
+        re.replace_all(&line, replacement).to_string()
+    } else {
+        re.replace(&line, replacement).to_string()
+    }
+}
+
 fn substitute(pattern: &str, replacement: &str, flags: &str, line: &str) -> Vec<String> {
     let re = Regex::new(&pattern).expect("Invalid regular expression");
     if !flags.is_empty() {
-        let new_line = if flags.contains('g') {
-            re.replace_all(line, replacement).to_string()
-        } else {
-            re.replace(line, replacement).to_string()
-        };
-        if flags.contains('w') && re.is_match(line) {
+        let [mut new_line, line] = line_to_edit(&re, flags, line);
+        let edited_line = edit_line(&re, replacement, flags, &line);
+        new_line.push_str(&edited_line);
+        if flags.contains('w') && re.is_match(&line) {
             if let Some(file_name) = flags.split(' ').collect::<Vec<&str>>().pop() {
                 append_or_create(PathBuf::from(&file_name), &new_line)
                     .expect("Failed to write file");
@@ -104,7 +129,7 @@ fn substitute(pattern: &str, replacement: &str, flags: &str, line: &str) -> Vec<
                 panic!("File name is required for w");
             }
         }
-        if flags.contains('p') && re.is_match(line) {
+        if flags.contains('p') && re.is_match(&line) {
             vec![new_line.clone(), new_line]
         } else {
             vec![new_line]

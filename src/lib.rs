@@ -55,7 +55,7 @@ enum Build {
     Regex(String, bool),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Options {
     matcher: Matcher,
     neg: bool,
@@ -68,7 +68,7 @@ pub enum Operation {
     Print,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum Matcher {
     Range(usize, usize),
     Single(usize),
@@ -199,12 +199,15 @@ fn build_options(index: &mut usize, characters: &[char], lines: &[String]) -> Op
         match bld {
             Build::None => {
                 if c.is_digit(10) {
-                    bld = Build::Num(characters[*index].to_string());
+                    bld = Build::Num(c.to_string());
+                    *index += 1;
                 } else if c == '/' {
                     bld = Build::Regex(String::new(), false);
+                    *index += 1;
                 } else if c == ' ' || c == ',' {
                     *index += 1;
                 } else {
+                    *index -= 1;
                     break;
                 }
             }
@@ -268,98 +271,44 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
         matcher: Matcher::None,
         neg: false,
     };
-    let mut bld = Build::None;
     let mut bldv: Vec<(Options, Operation)> = Vec::new();
     let characters: Vec<_> = expression.chars().collect();
     let mut index = 0usize;
     while index < characters.len() {
         let c = characters[index];
-        match bld {
-            Build::None => {
-                match c {
-                    's' => bldv.push(build_subs(&mut index, &characters, options.clone())),
-                    'd' => {
-                        bldv.push((options.clone(), Operation::Delete));
-                        options = Options {
-                            matcher: Matcher::None,
-                            neg: false,
-                        };
-                    }
-                    'p' => {
-                        bldv.push((options.clone(), Operation::Print));
-                        options = Options {
-                            matcher: Matcher::None,
-                            neg: false,
-                        };
-                    }
-                    'n' => break,
-                    'w' => bldv.push(build_write(&mut index, &characters, options.clone())),
-                    '/' => bld = Build::Regex(String::new(), false),
-                    '!' => options.neg = true,
-                    ';' => {
-                        bld = Build::None;
-                        options = Options {
-                            matcher: Matcher::None,
-                            neg: false,
-                        };
-                    }
-                    ',' => (),
-                    num if c.is_digit(10) => bld = Build::Num(num.to_string()),
-                    command => panic!("Invalid command: {}", command),
-                }
-                index += 1;
+        match c {
+            's' => bldv.push(build_subs(&mut index, &characters, options.clone())),
+            'd' => {
+                bldv.push((options.clone(), Operation::Delete));
+                options = Options {
+                    matcher: Matcher::None,
+                    neg: false,
+                };
             }
-            Build::Num(ref mut num) => {
-                if c.is_digit(10) {
-                    num.push(c);
-                    index += 1;
-                } else {
-                    if let Matcher::Single(from) = options.matcher {
-                        options = Options {
-                            matcher: Matcher::Range(from, num.parse().unwrap()),
-                            neg: c == '!',
-                        };
-                    } else {
-                        options = Options {
-                            matcher: Matcher::Single(num.parse().unwrap()),
-                            neg: c == '!',
-                        };
-                    }
-                    bld = Build::None;
-                }
+            'p' => {
+                bldv.push((options.clone(), Operation::Print));
+                options = Options {
+                    matcher: Matcher::None,
+                    neg: false,
+                };
             }
-            Build::Regex(ref mut search, ref mut finished) => {
-                if c != '/' && !*finished {
-                    search.push(c);
-                } else if c == '/' {
-                    *finished = true;
-                } else {
-                    if let Matcher::Single(from) = options.matcher {
-                        options = Options {
-                            matcher: Matcher::Range(
-                                from,
-                                get_regex_position(
-                                    Regex::new(search).expect("Invalid regular expression"),
-                                    lines,
-                                ),
-                            ),
-                            neg: c == '!',
-                        }
-                    } else {
-                        options = Options {
-                            matcher: Matcher::Single(get_regex_position(
-                                Regex::new(search).expect("Invalid regular expression"),
-                                lines,
-                            )),
-                            neg: c == '!',
-                        };
-                    }
-                    bld = Build::None;
-                    continue;
-                }
-                index += 1;
+            'n' => break,
+            'w' => bldv.push(build_write(&mut index, &characters, options.clone())),
+            '!' => options.neg = true,
+            ';' => {
+                options = Options {
+                    matcher: Matcher::None,
+                    neg: false,
+                };
             }
+            ',' => (),
+            ' ' => (),
+            _ if c.is_digit(10) || c == '/' => {
+                options = build_options(&mut index, &characters, lines)
+            }
+            command => panic!("Invalid command: {}", command),
         }
+        index += 1;
     }
     bldv
 }

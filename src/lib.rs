@@ -299,12 +299,12 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
     while index < characters.len() {
         let c = characters[index];
         match c {
-            's' => bldv.push(build_subs(&mut index, &characters, options.clone())),
             'd' => bldv.push((options.clone(), Operation::Delete)),
-            'p' => bldv.push((options.clone(), Operation::Print)),
             'n' => bldv.push((options.clone(), Operation::Skip)),
-            'w' => bldv.push(build_write(&mut index, &characters, options.clone())),
+            'p' => bldv.push((options.clone(), Operation::Print)),
             'q' => bldv.push((options.clone(), Operation::Quit)),
+            's' => bldv.push(build_subs(&mut index, &characters, options.clone())),
+            'w' => bldv.push(build_write(&mut index, &characters, options.clone())),
             '=' => bldv.push((options.clone(), Operation::PrintLineNumber)),
             '!' => options.neg = true,
             ';' => {

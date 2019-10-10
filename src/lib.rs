@@ -1,5 +1,6 @@
 use regex::Regex;
 use std::error::Error;
+use std::fs;
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -23,7 +24,7 @@ pub struct Opt {
     pub in_place: Option<String>,
 
     /// Either an expression and a file name or just the file name if -e is set
-    #[structopt(name = "ARGS", max_values = 2, min_values = 1)]
+    #[structopt(name = "ARGS", min_values = 1)]
     args: Vec<String>,
 }
 
@@ -37,7 +38,7 @@ impl Opt {
                 .join(";")
         } else if !self.expression.is_empty() {
             self.expression.join(";")
-        } else if self.args.len() == 2 {
+        } else if self.args.len() >= 2 {
             self.args[0].clone()
         } else {
             panic!("<expression> required");
@@ -46,6 +47,25 @@ impl Opt {
 
     pub fn get_file_name(&self) -> PathBuf {
         PathBuf::from(self.args.clone().pop().unwrap())
+    }
+
+    pub fn get_file_lines(&self) -> Vec<String> {
+        let file_names = if self.expression.is_empty() && self.file.is_none() {
+            &self.args[1..]
+        } else {
+            &self.args
+        };
+        let mut lines: Vec<String> = Vec::new();
+        for file_name in file_names {
+            lines.append(
+                &mut fs::read_to_string(file_name)
+                    .expect("File does not exist")
+                    .lines()
+                    .map(|l| format!("{}\n", l))
+                    .collect::<Vec<String>>(),
+            );
+        }
+        lines
     }
 }
 

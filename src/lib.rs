@@ -67,6 +67,7 @@ pub enum Operation {
     Delete,
     Print,
     Skip,
+    PrintLineNumber,
 }
 
 #[derive(Debug, Clone)]
@@ -201,16 +202,15 @@ fn build_options(index: &mut usize, characters: &[char], lines: &[String]) -> Op
             Build::None => {
                 if c.is_digit(10) {
                     bld = Build::Num(c.to_string());
-                    *index += 1;
                 } else if c == '/' {
                     bld = Build::Regex(String::new(), false);
-                    *index += 1;
-                } else if c == ' ' || c == ',' {
-                    *index += 1;
-                } else {
+                } else if c == '$' {
+                    bld = Build::Num(lines.len().to_string());
+                } else if c != ' ' && c != ',' {
                     *index -= 1;
                     break;
                 }
+                *index += 1;
             }
             Build::Num(ref mut num) => {
                 if c.is_digit(10) {
@@ -283,6 +283,7 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
             'p' => bldv.push((options.clone(), Operation::Print)),
             'n' => bldv.push((options.clone(), Operation::Skip)),
             'w' => bldv.push(build_write(&mut index, &characters, options.clone())),
+            '=' => bldv.push((options.clone(), Operation::PrintLineNumber)),
             '!' => options.neg = true,
             ';' => {
                 options = Options {
@@ -292,7 +293,7 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
             }
             ',' => (),
             ' ' => (),
-            _ if c.is_digit(10) || c == '/' => {
+            _ if c.is_digit(10) || c == '$' || c == '/' => {
                 options = build_options(&mut index, &characters, lines)
             }
             command => panic!("Invalid command: {}", command),
@@ -356,8 +357,16 @@ pub fn execute(opt: &Opt, expressions: &[(Options, Operation)], lines: &[String]
                 }
                 (options, Operation::Skip) => {
                     if is_valid(options, line_number) {
+                        if !opt.quiet {
+                            result.push(line.to_string());
+                        }
                         line_number += 1;
                         line = &mut lines[line_number];
+                    }
+                }
+                (options, Operation::PrintLineNumber) => {
+                    if is_valid(options, line_number) {
+                        printed.push(format!("{}\n", line_number + 1));
                     }
                 }
             }

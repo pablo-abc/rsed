@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "red", about = "A sed implementation using rust")]
+#[structopt(name = "rsed", about = "A sed implementation using rust")]
 pub struct Opt {
     /// Quiet mode
     #[structopt(short = "n", long)]
@@ -14,38 +14,38 @@ pub struct Opt {
     #[structopt(short, long, number_of_values = 1)]
     expression: Vec<String>,
 
+    /// Script file
+    #[structopt(short, long)]
+    file: Option<PathBuf>,
+
     /// Modify a file in place
     #[structopt(short, long)]
     pub in_place: Option<String>,
 
-    /// Substitution command
-    #[structopt(name = "COMMAND")]
-    expression_or_file: String,
-
-    /// File name
-    #[structopt(name = "FILE")]
-    file_name: Option<PathBuf>,
+    /// Either an expression and a file name or just the file name if -e is set
+    #[structopt(name = "ARGS", max_values = 2, min_values = 1)]
+    args: Vec<String>,
 }
 
 impl Opt {
     pub fn get_expressions(&self) -> String {
-        if self.expression.is_empty() {
-            if self.file_name.is_some() {
-                self.expression_or_file.clone()
-            } else {
-                panic!("<expression> required");
-            }
-        } else {
+        if let Some(file) = &self.file {
+            std::fs::read_to_string(file)
+                .expect("File does not exist")
+                .lines()
+                .collect::<Vec<&str>>()
+                .join(";")
+        } else if !self.expression.is_empty() {
             self.expression.join(";")
+        } else if self.args.len() == 2 {
+            self.args[0].clone()
+        } else {
+            panic!("<expression> required");
         }
     }
 
     pub fn get_file_name(&self) -> PathBuf {
-        if let Some(file_name) = &self.file_name {
-            file_name.clone()
-        } else {
-            PathBuf::from(&self.expression_or_file)
-        }
+        PathBuf::from(self.args.clone().pop().unwrap())
     }
 }
 
@@ -68,6 +68,7 @@ pub enum Operation {
     Print,
     Skip,
     PrintLineNumber,
+    Quit,
 }
 
 #[derive(Debug, Clone)]
@@ -283,6 +284,7 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
             'p' => bldv.push((options.clone(), Operation::Print)),
             'n' => bldv.push((options.clone(), Operation::Skip)),
             'w' => bldv.push(build_write(&mut index, &characters, options.clone())),
+            'q' => bldv.push((options.clone(), Operation::Quit)),
             '=' => bldv.push((options.clone(), Operation::PrintLineNumber)),
             '!' => options.neg = true,
             ';' => {
@@ -325,49 +327,40 @@ pub fn execute(opt: &Opt, expressions: &[(Options, Operation)], lines: &[String]
     let mut result = Vec::new();
     let mut lines = lines.to_owned();
     let mut line_number: usize = 0;
-    while line_number < lines.len() {
+    let lines_len = lines.len();
+    while line_number < lines_len {
         let mut line = &mut lines[line_number];
         let mut printed: Vec<String> = Vec::new();
         for op in expressions {
-            match op {
-                (options, Operation::Subs(substitution)) => {
-                    if !line.is_empty() && is_valid(options, line_number) {
-                        let mut new_line =
-                            substitute(&substitution[0], &substitution[1], &substitution[2], &line);
-                        *line = new_line[0].clone();
-                        new_line.pop();
-                        printed.append(&mut new_line);
-                    }
+            if !is_valid(&op.0, line_number) {
+                continue;
+            }
+            match &op.1 {
+                Operation::Subs(substitution) => {
+                    let mut new_line =
+                        substitute(&substitution[0], &substitution[1], &substitution[2], &line);
+                    *line = new_line[0].clone();
+                    new_line.pop();
+                    printed.append(&mut new_line);
                 }
-                (options, Operation::Write(file_name)) => {
-                    if is_valid(options, line_number) {
-                        append_or_create(file_name.to_path_buf(), &line)
-                            .expect("Failed to write file");
-                    };
+                Operation::Write(file_name) => {
+                    append_or_create(file_name.to_path_buf(), &line).expect("Failed to write file");
                 }
-                (options, Operation::Delete) => {
-                    if is_valid(options, line_number) {
-                        line.clear()
+                Operation::Delete => line.clear(),
+                Operation::Print => printed.push(line.clone()),
+                Operation::Skip => {
+                    if !opt.quiet {
+                        result.push(line.to_string());
                     }
+                    line_number += 1;
+                    line = &mut lines[line_number];
                 }
-                (options, Operation::Print) => {
-                    if is_valid(options, line_number) {
-                        printed.push(line.clone())
-                    }
+                Operation::PrintLineNumber => {
+                    printed.push(format!("{}\n", line_number + 1));
                 }
-                (options, Operation::Skip) => {
-                    if is_valid(options, line_number) {
-                        if !opt.quiet {
-                            result.push(line.to_string());
-                        }
-                        line_number += 1;
-                        line = &mut lines[line_number];
-                    }
-                }
-                (options, Operation::PrintLineNumber) => {
-                    if is_valid(options, line_number) {
-                        printed.push(format!("{}\n", line_number + 1));
-                    }
+                Operation::Quit => {
+                    line_number = lines_len;
+                    break;
                 }
             }
         }

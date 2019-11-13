@@ -89,6 +89,8 @@ pub enum Operation {
     Skip,
     PrintLineNumber,
     Quit,
+    InsertBefore(String),
+    InsertAfter(String),
 }
 
 #[derive(Debug, Clone)]
@@ -211,6 +213,36 @@ fn build_write(index: &mut usize, characters: &[char], options: Options) -> (Opt
     (options, Operation::Write(PathBuf::from(file_name)))
 }
 
+enum InsertType {
+    Before,
+    After,
+}
+
+fn build_insert(
+    insert_type: InsertType,
+    index: &mut usize,
+    characters: &[char],
+    options: Options,
+) -> (Options, Operation) {
+    *index += 1;
+    let mut line = String::new();
+    while characters[*index] == ' ' {
+        *index += 1;
+    }
+    while *index < characters.len() {
+        line.push(characters[*index]);
+        *index += 1;
+    }
+    line.push('\n');
+    (
+        options,
+        match insert_type {
+            InsertType::Before => Operation::InsertBefore(line),
+            InsertType::After => Operation::InsertAfter(line),
+        },
+    )
+}
+
 fn build_options(index: &mut usize, characters: &[char], lines: &[String]) -> Options {
     let mut options = Options {
         matcher: Matcher::None,
@@ -299,7 +331,19 @@ pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)
     while index < characters.len() {
         let c = characters[index];
         match c {
+            'a' => bldv.push(build_insert(
+                InsertType::After,
+                &mut index,
+                &characters,
+                options.clone(),
+            )),
             'd' => bldv.push((options.clone(), Operation::Delete)),
+            'i' => bldv.push(build_insert(
+                InsertType::Before,
+                &mut index,
+                &characters,
+                options.clone(),
+            )),
             'n' => bldv.push((options.clone(), Operation::Skip)),
             'p' => bldv.push((options.clone(), Operation::Print)),
             'q' => bldv.push((options.clone(), Operation::Quit)),
@@ -348,6 +392,8 @@ pub fn execute(opt: &Opt, expressions: &[(Options, Operation)], lines: &[String]
     let mut lines = lines.to_owned();
     let mut line_number: usize = 0;
     let lines_len = lines.len();
+    let mut inserted_before: Vec<String> = Vec::new();
+    let mut inserted_after: Vec<String> = Vec::new();
     while line_number < lines_len {
         let mut line = &mut lines[line_number];
         let mut printed: Vec<String> = Vec::new();
@@ -382,12 +428,20 @@ pub fn execute(opt: &Opt, expressions: &[(Options, Operation)], lines: &[String]
                     line_number = lines_len;
                     break;
                 }
+                Operation::InsertAfter(line) => {
+                    inserted_after.push(line.to_string());
+                }
+                Operation::InsertBefore(line) => {
+                    inserted_before.push(line.to_string());
+                }
             }
         }
+        result.append(&mut inserted_before);
         result.append(&mut printed);
         if !opt.quiet {
             result.push(line.to_string());
         }
+        result.append(&mut inserted_after);
         line_number += 1;
     }
     result

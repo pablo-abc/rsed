@@ -29,17 +29,17 @@ pub struct Opt {
 }
 
 impl Opt {
-    pub fn get_expressions(&self) -> String {
+    pub fn get_expressions(&self) -> Vec<String> {
         if let Some(file) = &self.file {
             std::fs::read_to_string(file)
                 .expect("File does not exist")
                 .lines()
-                .collect::<Vec<&str>>()
-                .join(";")
+                .map(String::from)
+                .collect::<Vec<String>>()
         } else if !self.expression.is_empty() {
-            self.expression.join(";")
+            self.expression.clone()
         } else if self.args.len() >= 2 {
-            self.args[0].clone()
+            vec![self.args[0].clone()]
         } else {
             panic!("<expression> required");
         }
@@ -320,51 +320,53 @@ fn build_options(index: &mut usize, characters: &[char], lines: &[String]) -> Op
     options
 }
 
-pub fn build_ast(expression: &str, lines: &[String]) -> Vec<(Options, Operation)> {
+pub fn build_ast(expressions: &[String], lines: &[String]) -> Vec<(Options, Operation)> {
     let mut options = Options {
         matcher: Matcher::None,
         neg: false,
     };
     let mut bldv: Vec<(Options, Operation)> = Vec::new();
-    let characters: Vec<_> = expression.chars().collect();
-    let mut index = 0usize;
-    while index < characters.len() {
-        let c = characters[index];
-        match c {
-            'a' => bldv.push(build_insert(
-                InsertType::After,
-                &mut index,
-                &characters,
-                options.clone(),
-            )),
-            'd' => bldv.push((options.clone(), Operation::Delete)),
-            'i' => bldv.push(build_insert(
-                InsertType::Before,
-                &mut index,
-                &characters,
-                options.clone(),
-            )),
-            'n' => bldv.push((options.clone(), Operation::Skip)),
-            'p' => bldv.push((options.clone(), Operation::Print)),
-            'q' => bldv.push((options.clone(), Operation::Quit)),
-            's' => bldv.push(build_subs(&mut index, &characters, options.clone())),
-            'w' => bldv.push(build_write(&mut index, &characters, options.clone())),
-            '=' => bldv.push((options.clone(), Operation::PrintLineNumber)),
-            '!' => options.neg = true,
-            ';' => {
-                options = Options {
-                    matcher: Matcher::None,
-                    neg: false,
-                };
+    for expression in expressions {
+        let characters: Vec<_> = expression.chars().collect();
+        let mut index = 0usize;
+        while index < characters.len() {
+            let c = characters[index];
+            match c {
+                'a' => bldv.push(build_insert(
+                    InsertType::After,
+                    &mut index,
+                    &characters,
+                    options.clone(),
+                )),
+                'd' => bldv.push((options.clone(), Operation::Delete)),
+                'i' => bldv.push(build_insert(
+                    InsertType::Before,
+                    &mut index,
+                    &characters,
+                    options.clone(),
+                )),
+                'n' => bldv.push((options.clone(), Operation::Skip)),
+                'p' => bldv.push((options.clone(), Operation::Print)),
+                'q' => bldv.push((options.clone(), Operation::Quit)),
+                's' => bldv.push(build_subs(&mut index, &characters, options.clone())),
+                'w' => bldv.push(build_write(&mut index, &characters, options.clone())),
+                '=' => bldv.push((options.clone(), Operation::PrintLineNumber)),
+                '!' => options.neg = true,
+                ';' => {
+                    options = Options {
+                        matcher: Matcher::None,
+                        neg: false,
+                    };
+                }
+                ',' => (),
+                ' ' => (),
+                _ if c.is_digit(10) || c == '$' || c == '/' => {
+                    options = build_options(&mut index, &characters, lines)
+                }
+                command => panic!("Invalid command: {}", command),
             }
-            ',' => (),
-            ' ' => (),
-            _ if c.is_digit(10) || c == '$' || c == '/' => {
-                options = build_options(&mut index, &characters, lines)
-            }
-            command => panic!("Invalid command: {}", command),
+            index += 1;
         }
-        index += 1;
     }
     bldv
 }

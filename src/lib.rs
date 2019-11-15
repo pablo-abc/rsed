@@ -190,3 +190,26 @@ pub fn execute(opt: &Opt, expressions: &[(Options, Operation)], lines: &[String]
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_valid_returns_true() {
+        let options = Options {
+            matcher: Matcher::Single(2),
+            neg: false,
+        };
+        assert_eq!(is_valid(&options, 1usize), true);
+    }
+
+    #[test]
+    fn is_valid_returns_false() {
+        let options = Options {
+            matcher: Matcher::Single(1),
+            neg: false,
+        };
+        assert_eq!(is_valid(&options, 1usize), false);
+    }
+}

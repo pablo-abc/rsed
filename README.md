@@ -6,3 +6,6 @@ This application is a very naive implementation of sed done using Rust. This is 
 + Substitution with the g, p and, c and w commands
 + Range by number and/or regular expressions
 + -n, -f and -e flags
++ Line insertion with the a and i commands.
++ Still doesn't handle escaped characters.
++ The d, q, s, ! and = commands are also implemented.

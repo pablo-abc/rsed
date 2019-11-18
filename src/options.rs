@@ -60,7 +60,7 @@ impl Opt {
                     .expect("File does not exist")
                     .lines()
                     .map(|l| format!("{}\n", l))
-                    .collect::<Vec<String>>(),
+                    .collect(),
             );
         }
         lines

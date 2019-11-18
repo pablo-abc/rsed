@@ -212,4 +212,23 @@ mod tests {
         };
         assert_eq!(is_valid(&options, 1usize), false);
     }
+
+    #[test]
+    fn substitutes_the_line() {
+        let line = substitute("lnie", "line", "", "This is a lnie.");
+        assert_eq!(line[0], "This is a line.");
+        let line = substitute("lnie", "line", "pg", "This lnie is another lnie.");
+        assert_eq!(line[0], "This line is another line.");
+        assert_eq!(line.len(), 2);
+    }
+
+    #[test]
+    fn build_substitute_operation() {
+        let operations = build_ast(&vec![String::from("s/lnie/line/pg")], &Vec::new());
+        if let Operation::Subs([matcher, replacement, flags]) = &operations[0].1 {
+            assert_eq!(matcher, "lnie");
+            assert_eq!(replacement, "line");
+            assert_eq!(flags, "pg");
+        }
+    }
 }

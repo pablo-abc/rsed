@@ -66,3 +66,30 @@ impl Opt {
         lines
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_options() -> Opt {
+        Opt {
+            args: vec!["s/lnie/line/".to_string(), "file.txt".to_string()],
+            file: Option::None,
+            expression: Vec::new(),
+            quiet: false,
+            in_place: Option::None,
+        }
+    }
+
+    #[test]
+    fn gets_file_name() {
+        let opt = create_options();
+        assert_eq!(opt.get_file_name(), PathBuf::from("file.txt"));
+    }
+
+    #[test]
+    fn gets_expressions() {
+        let opt = create_options();
+        assert_eq!(opt.get_expressions(), vec![String::from("s/lnie/line/")]);
+    }
+}

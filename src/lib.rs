@@ -1,13 +1,13 @@
+mod arg_parser;
 mod builders;
 mod helpers;
-mod options;
 
+pub use arg_parser::Opt;
 use builders::insert::{build_insert, InsertType};
 use builders::options::build_options;
 use builders::substitution::build_subs;
 use builders::write::build_write;
 pub use helpers::{append_or_create, get_regex_position, Build, Matcher, Operation, Options};
-pub use options::Opt;
 use regex::Regex;
 use std::path::PathBuf;
 
